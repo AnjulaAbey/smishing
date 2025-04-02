@@ -10,12 +10,17 @@ import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
 import okhttp3.*;
+
+import org.json.JSONArray;
 import org.json.JSONObject;
 import java.util.concurrent.TimeUnit;
 
 public class OllamaClient {
     // Base URL for the Ollama API endpoint
     private static final String BASE_URL = "https://618f-112-134-231-34.ngrok-free.app";
+    private static final String GEMINI_API_KEY = "AIzaSyB1GdxZqRX89QSepkNmC20W57oIdGd9H18";
+    private static final String GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" + GEMINI_API_KEY;
+
     // HTTP client configured with extended timeouts for API calls
     private final OkHttpClient client;
     // Database access instance for querying local storage
@@ -43,9 +48,9 @@ public class OllamaClient {
             databaseAccess.open();
 
             Cursor cursor = null;
-            
+
             try {
-               
+
                 if (message.contains("reports")) {
                     if (message.contains("today")) {
                         String today = new SimpleDateFormat("dd-MM-yyyy", Locale.getDefault())
@@ -58,7 +63,7 @@ public class OllamaClient {
                         cursor = databaseAccess.getReportsForDate(yesterday);
                         return formatResults(cursor, "reports", yesterday);
                     } else {
-                        
+
                         String datePattern = "(0[1-9]|[12][0-9]|3[01])[-/](0[1-9]|1[012])[-/](\\d{4})";
                         java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(datePattern);
                         java.util.regex.Matcher matcher = pattern.matcher(message);
@@ -92,14 +97,14 @@ public class OllamaClient {
     }
 
     private String normalizeDate(String date) {
-       
+
         try {
             SimpleDateFormat inputFormat = new SimpleDateFormat("dd-MM-yyyy", Locale.getDefault());
             SimpleDateFormat outputFormat = new SimpleDateFormat("dd-MM-yyyy", Locale.getDefault());
             Date parsedDate = inputFormat.parse(date);
             return outputFormat.format(parsedDate);
         } catch (Exception e) {
-            return date; 
+            return date;
         }
     }
 
@@ -108,7 +113,7 @@ public class OllamaClient {
     if (cursor != null && cursor.moveToFirst()) {
 
         StringBuilder result = new StringBuilder();
-        
+
         if (date != null) {
             result.append("Here are the ").append(type).append(" for ").append(date).append(":\n\n");
         } else {
@@ -122,13 +127,13 @@ public class OllamaClient {
             String messageDate = cursor.getString(cursor.getColumnIndex(DatabaseAccess.DatabaseOpenHelper.KEY_DATE));
 
             String messageText = cursor.getString(cursor.getColumnIndex(DatabaseAccess.DatabaseOpenHelper.KEY_MESSAGE));
-            
+
             result.append("📱 Phone: ").append(phoneNumber)
                   .append("\n📅 Date: ").append(messageDate)
                   .append("\n💬 Message: ").append(messageText)
                   .append("\n\n");
         } while (cursor.moveToNext());
-        
+
         return result.toString();
     } else {
         if (date != null) {
@@ -143,46 +148,63 @@ public class OllamaClient {
 
     public void getResponse(String message, ResponseCallback callback) {
         new Thread(() -> {
-            // First try to handle as a database query
+            // Check if the message can be answered from the database
             String dbResponse = handleDatabaseQuery(message);
             if (dbResponse != null) {
                 callback.onResponse(dbResponse);
                 return;
             }
-            // If not a database query, forward to Ollama API
+
             try {
-                // Configure API request with model and system prompt
+                // Create request body as per Gemini API format
                 JSONObject jsonBody = new JSONObject();
-                jsonBody.put("model", "gemma2:2b");
-                jsonBody.put("stream", false);
-                String systemPrompt = "You are a smishing and cybersecurity assistant, helping users understand and resolve various cyber-related issues. \" +\n" +
-                        "                      \"Engage with customers to identify smishing attempts and offer advice on securing their digital safety, including protecting personal information and recognizing online threats.";
-                jsonBody.put("system", systemPrompt);
-                jsonBody.put("prompt", message);
-                
+                JSONObject content = new JSONObject();
+                content.put("text", message);
+
+                JSONObject part = new JSONObject();
+                part.put("parts", new JSONArray().put(content));
+
+                jsonBody.put("contents", new JSONArray().put(part));
+
                 RequestBody body = RequestBody.create(
-                    jsonBody.toString(),
-                    MediaType.parse("application/json")
+                        jsonBody.toString(),
+                        MediaType.parse("application/json")
                 );
 
                 Request request = new Request.Builder()
-                    .url(BASE_URL + "/api/generate")
-                    .post(body)
-                    .build();
+                        .url(GEMINI_URL)
+                        .post(body)
+                        .addHeader("Content-Type", "application/json")
+                        .build();
 
                 try (Response response = client.newCall(request).execute()) {
                     if (response.isSuccessful() && response.body() != null) {
-                        JSONObject jsonResponse = new JSONObject(response.body().string());
-                        String botResponse = jsonResponse.getString("response");
-                        callback.onResponse(botResponse);
+                        String responseBody = response.body().string();
+                        Log.d("OllamaClient", "Gemini API Response: " + responseBody);  
+
+                        JSONObject jsonResponse = new JSONObject(responseBody);
+                        JSONArray candidates = jsonResponse.getJSONArray("candidates");
+
+                        if (candidates.length() > 0) {
+                            String botResponse = candidates.getJSONObject(0)
+                                    .getJSONObject("content")
+                                    .getJSONArray("parts")
+                                    .getJSONObject(0)
+                                    .getString("text");
+
+                            callback.onResponse(botResponse);
+                        } else {
+                            callback.onResponse("Sorry, I couldn't process your request.");
+                        }
                     } else {
-                        callback.onResponse("Sorry, I couldn't process your request.");
+                        callback.onResponse("Sorry, an error occurred while fetching response.");
                     }
                 }
             } catch (Exception e) {
-                Log.e("OllamaClient", "Error getting response", e);
+                Log.e("OllamaClient", "Error getting response from Gemini", e);
                 callback.onResponse("Sorry, an error occurred.");
             }
         }).start();
     }
+
 }

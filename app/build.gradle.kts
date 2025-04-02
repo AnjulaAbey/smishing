@@ -116,6 +116,6 @@ dependencies {
     implementation("io.noties.markwon:html:4.6.2")
     implementation("io.noties.markwon:image:4.6.2")
     implementation("com.google.android.gms:play-services-auth:20.0.0")
-
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 }
 

@@ -11,6 +11,8 @@ import android.widget.ImageButton;
 
 import androidx.appcompat.app.AppCompatActivity;
 
+import com.example.smishingdetectionapp.chat.ChatAssistantActivity;
+
 public class EducationActivity extends AppCompatActivity {
     @SuppressLint("SetJavaScriptEnabled")
     @Override
@@ -36,5 +38,11 @@ public class EducationActivity extends AppCompatActivity {
             startActivity(intent);
         });
 
+        // AI Chatbot Button
+        Button aiBotButton = findViewById(R.id.aiBot);
+        aiBotButton.setOnClickListener(v -> {
+            Intent intent = new Intent(EducationActivity.this, ChatAssistantActivity.class);
+            startActivity(intent);
+        });
     }
 }
